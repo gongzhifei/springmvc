@@ -1,0 +1,5 @@
+com\gzf\demo\servlet\GDispatcherServlet.class
+com\gzf\springmvc\annotation\GZFRequestMapping.class
+com\gzf\springmvc\annotation\GZFService.class
+com\gzf\springmvc\annotation\GZFAutowrited.class
+com\gzf\springmvc\annotation\GZFController.class
