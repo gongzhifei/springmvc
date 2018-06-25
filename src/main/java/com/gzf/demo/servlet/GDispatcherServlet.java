@@ -4,12 +4,15 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Properties;
 
 import javax.servlet.ServletConfig;
@@ -60,8 +63,8 @@ public class GDispatcherServlet extends HttpServlet {
 		}
 		for (Map.Entry<String, Object> entry : ioc.entrySet()) {
 			Class<?> clazz = entry.getValue().getClass();
-			if(clazz.isAnnotationPresent(GZFController.class)){
-				return;
+			if(!clazz.isAnnotationPresent(GZFController.class)){
+				continue;
 			}
 			String baseUrl = "";
 			if(clazz.isAnnotationPresent(GZFRequestMapping.class)){
@@ -70,10 +73,12 @@ public class GDispatcherServlet extends HttpServlet {
 			}
 			Method [] methods = clazz.getMethods();
 			for (Method method : methods) {
-				GZFRequestMapping requestMapping = clazz.getAnnotation(GZFRequestMapping.class);
+				GZFRequestMapping requestMapping = method.getAnnotation(GZFRequestMapping.class);
+				if(null!=requestMapping){
 				String url = requestMapping.value();
-				url = (baseUrl + url);
-				handlerMapping.put(url, method);
+					url = (baseUrl + url);
+					handlerMapping.put(url, method);
+				}
 			}
 			
 		}
@@ -121,16 +126,15 @@ public class GDispatcherServlet extends HttpServlet {
 				//加注解的类初始化
 				if(clazz.isAnnotationPresent(GZFController.class)){
 					Object obj = clazz.newInstance();
-					String beanName = lowerFirstCase(className);
 					//初始化IOC容器 beanName小写放入
-					ioc.put(beanName, obj);
+					ioc.put(className, obj);
 				}else if(clazz.isAnnotationPresent(GZFService.class)){
 					//2.如果是个接口,把实现类赋值给他
 					Class<?>[] interfaces = clazz.getInterfaces();
 					for (Class<?> i : interfaces) {
-						System.out.println("i.getName:"+i.getName());
+						String beanName = lowerFirstCase(i.getName());
 						Object instance = clazz.newInstance();
-						ioc.put(i.getName(), instance);
+						ioc.put(beanName, instance);
 					}
 					//1.可以指定Bean名称,如果指定吧指定名称写入IOC
 					GZFService service = clazz.getAnnotation(GZFService.class);
@@ -138,11 +142,6 @@ public class GDispatcherServlet extends HttpServlet {
 					if("".equals(beanName.trim())){
 						beanName = lowerFirstCase(clazz.getSimpleName());
 					}
-					
-					
-					
-					
-					
 				}else{
 					continue;
 				}
@@ -157,12 +156,10 @@ public class GDispatcherServlet extends HttpServlet {
 		URL url = this.getClass().getClassLoader().getResource("/" + scanPackage.replaceAll("\\.", "/"));
 		File classDir = new File(url.getFile());
 		for (File file : classDir.listFiles()) {
-			System.out.println("---"+file.getName());
 			if(file.isDirectory()){
 				doScanner(scanPackage + "." +file.getName());
 			}else{
 				String className = scanPackage + "." +file.getName().replace(".class", "");
-				System.out.println(className);
 				classNames.add(className);
 			}
 		}
@@ -206,12 +203,46 @@ public class GDispatcherServlet extends HttpServlet {
 	private void doDispatcher(HttpServletRequest req, HttpServletResponse resp) throws IOException {
 		String url = req.getRequestURI();
 		String contextPath = req.getContextPath();
-		url = url.replace(contextPath, "").replaceAll("/*", "/");
+		url = url.replace(contextPath, "");
 		if(!handlerMapping.containsKey(url)){
 			resp.getWriter().write("404 Not Found");
 		}
-		Method m = handlerMapping.get(url);
-		System.out.println(m);
+		Method method = handlerMapping.get(url);
+		//获取方法的参数列表
+		Class<?>[] parameterTypes = method.getParameterTypes();
+		//获取请求的参数
+		Map<String, String[]> parameterMap = req.getParameterMap();
+		//保存参数值
+		Object [] paramValues = new Object[parameterTypes.length];
+		//方法的参数列表
+        for (int i = 0; i<parameterTypes.length; i++){  
+            //根据参数名称，做某些处理  
+            String requestParam = parameterTypes[i].getSimpleName();  
+            
+            if (requestParam.equals("HttpServletRequest")){  
+                //参数类型已明确，这边强转类型  
+            	paramValues[i]=req;
+                continue;  
+            }  
+            if (requestParam.equals("HttpServletResponse")){  
+            	paramValues[i]=resp;
+                continue;  
+            }
+            if(requestParam.equals("String")){
+            	for (Entry<String, String[]> param : parameterMap.entrySet()) {
+         			String value =Arrays.toString(param.getValue()).replaceAll("\\[|\\]", "").replaceAll(",\\s", ",");
+         			paramValues[i]=value;
+         		}
+            }
+        }  
+		//利用反射机制来调用
+		try {
+			Class<?> clazz = method.getDeclaringClass();
+			System.out.println(clazz.getName());
+			method.invoke(ioc.get(clazz.getName()), paramValues);//第一个参数是method所对应的实例 在ioc容器中
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 	}
 
 	private String lowerFirstCase(String str){

@@ -14,6 +14,7 @@ public class DemoController {
 	
 	@GZFRequestMapping("/hello")
 	public void hello(String name){
+		System.out.println("123");
 		System.out.println(demoService.sayHello(name));
 	}
 }
